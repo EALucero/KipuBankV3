@@ -2,7 +2,6 @@
 pragma solidity 0.8.27;
 
 import { Test } from "forge-std/Test.sol";
-//import { AccessControl } from "@openzeppelin/contracts/access/AccessControl.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { KipuBankV3 } from "../src/KipuBankV3.sol";
 import { MockERC20 } from "./mocks/MockERC20.sol";
@@ -117,7 +116,7 @@ contract KipuBankV3Test is Test {
         assertEq(kipu.getVaultBalance(user), 1000e6);
     }
 
-    function testDepositETHSwap() public {
+    function testDepositEthSwap() public {
         uint256 ethAmount = 1 ether;
 
         // Asegurar que el router tenga USDC para entregar
