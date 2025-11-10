@@ -6,6 +6,7 @@ import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { KipuBankV3 } from "../src/KipuBankV3.sol";
 import { MockERC20 } from "./mocks/MockERC20.sol";
 import { MockUniswapRouter } from "./mocks/MockUniswapRouter.sol";
+import "forge-std/Vm.sol";
 
 contract KipuBankV3Test is Test {
     KipuBankV3 kipu;
@@ -27,7 +28,6 @@ contract KipuBankV3Test is Test {
         vm.label(user, "User");
     }
 
-
     function testInitialStats() public view {
         (uint256 deposits, uint256 withdrawals) = kipu.getStats();
         assertEq(deposits, 0);
@@ -42,26 +42,46 @@ contract KipuBankV3Test is Test {
     function testDepositUsdc() public {
         uint256 amount = 1000e6;
 
-        // Simular balance y aprobación
         mockUsdc.mint(user, amount);
+        mockUsdc.mint(address(mockRouter), 1_000_000e6);
+
+        vm.recordLogs();
         vm.prank(user);
         mockUsdc.approve(address(kipu), amount);
 
         vm.prank(user);
         kipu.deposit(address(mockUsdc), amount);
+
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        assertEq(logs.length, 1);
+
+        bytes32 expectedTopic = keccak256("Deposit(address,address,uint256,uint256)");
+        assertEq(logs[0].topics[0], expectedTopic);
+
+        assertEq(address(uint160(uint256(logs[0].topics[1]))), user);
+        assertEq(address(uint160(uint256(logs[0].topics[2]))), address(mockUsdc));
+
+        (uint256 amountIn, uint256 usdcReceived) = abi.decode(logs[0].data, (uint256, uint256));
+        assertEq(amountIn, amount);
+        assertEq(usdcReceived, amount);
 
         assertEq(kipu.getVaultBalance(user), amount);
     }
 
-    function testWithdrawUsdc() public {
+    function testWithdrawUsdc() public {  
         uint256 amount = 1000e6;
 
         // Depositar primero
         mockUsdc.mint(user, amount);
+        mockUsdc.mint(address(mockRouter), 1_000_000e6);
+
         vm.prank(user);
         mockUsdc.approve(address(kipu), amount);
+
         vm.prank(user);
         kipu.deposit(address(mockUsdc), amount);
+
+        assertEq(mockUsdc.balanceOf(address(kipu)), 1000e6);
 
         // Retirar
         vm.prank(user);
@@ -96,21 +116,35 @@ contract KipuBankV3Test is Test {
 
     function testDepositWithSwapToken() public {
         // Simulamos un token que no es USDC
+        uint256 amount = 500e18; // 500 tokens con 18 decimales
+        
         MockERC20 tokenIn = new MockERC20();
-        tokenIn.mint(user, 500e18); // 500 tokens con 18 decimales
+        tokenIn.mint(user, amount);
 
         // Registramos sus decimales en el contrato
         kipu.setTokenDecimals(address(tokenIn), 18);
-
-        // Asegurar que el router tenga USDC para entregar
         mockUsdc.mint(address(mockRouter), 1_000_000e6);
 
         // Aprobamos y depositamos
         vm.prank(user);
-        tokenIn.approve(address(kipu), 500e18);
+        tokenIn.approve(address(kipu), amount);
 
+        vm.recordLogs();
         vm.prank(user);
-        kipu.deposit(address(tokenIn), 500e18);
+        kipu.deposit(address(tokenIn), amount);
+
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        assertEq(logs.length, 1);
+
+        bytes32 expectedTopic = keccak256("Deposit(address,address,uint256,uint256)");
+        assertEq(logs[0].topics[0], expectedTopic);
+
+        assertEq(address(uint160(uint256(logs[0].topics[1]))), user);
+        assertEq(address(uint160(uint256(logs[0].topics[2]))), address(tokenIn));
+
+        (uint256 amountIn, uint256 usdcReceived) = abi.decode(logs[0].data, (uint256, uint256));
+        assertEq(amountIn, amount);
+        assertEq(usdcReceived, 1000e6);
 
         // El mock convierte 1 token = 2 USDC → esperamos 1000 USDC
         assertEq(kipu.getVaultBalance(user), 1000e6);

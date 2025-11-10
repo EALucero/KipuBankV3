@@ -5,6 +5,7 @@ import { AccessControl } from "@openzeppelin/contracts/access/AccessControl.sol"
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import { IUniswapV2Router02 } from "v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
+import "forge-std/console.sol";
 
 /**
  * @title KipuBankV3
@@ -142,6 +143,11 @@ contract KipuBankV3 is AccessControl, ReentrancyGuard {
 
         vaults[user][USDC] += usdcReceived;
         totalDeposits += usdcReceived;
+
+        console.log("tokenIn:", tokenIn);
+        console.log("amountIn:", amountIn);
+        console.log("usdcReceived:", usdcReceived);
+
 
         emit Deposit(user, tokenIn, amountIn, usdcReceived);
     }
