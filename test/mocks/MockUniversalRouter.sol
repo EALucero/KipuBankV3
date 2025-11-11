@@ -17,8 +17,8 @@ contract MockUniversalRouter {
         bytes[] calldata inputs,
         uint256 deadline
     ) external {
-        // Simula el swap depositando USDC en el contrato
-        IERC20(usdc).transferFrom(msg.sender, address(this), simulatedOutput);
+        // Simula el swap depositando USDC en el contrato KipuBankV3
+        IERC20(usdc).transfer(address(this), simulatedOutput);
     }
 
     function setSimulatedOutput(uint256 amount) external {

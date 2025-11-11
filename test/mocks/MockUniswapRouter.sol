@@ -15,13 +15,13 @@ contract MockUniswapRouter {
         address[] calldata path,
         address to,
         uint // deadline
-    ) external payable returns (uint[] memory amounts) {
+    ) external payable returns (uint256[] memory) {
         require(path.length == 2, "Invalid path");
         require(path[1] != address(0), "Invalid USDC");
 
-        amounts = new uint[](2);
+        uint256[] memory amounts = new uint256[](2);
         amounts[0] = msg.value;
-        amounts[1] = 1000e6; // Simula 1 ETH = 1000 USDC
+        amounts[1] = 1000e6;
 
         require(IERC20(path[1]).transfer(to, amounts[1]), "Mock transfer failed");
 
@@ -34,11 +34,11 @@ contract MockUniswapRouter {
         address[] calldata path,
         address to,
         uint // deadline
-    ) external returns (uint[] memory amounts) {
+    ) external returns (uint256[] memory) {
         require(path.length == 2, "Invalid path");
         require(path[1] != address(0), "Invalid USDC");
 
-        amounts = new uint[](2);
+        uint256[] memory amounts = new uint256[](2);
         amounts[0] = amountIn;
         amounts[1] = 1000e6;
 

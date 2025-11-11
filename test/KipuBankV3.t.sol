@@ -194,7 +194,7 @@ contract KipuBankV3Test is Test {
         dummyInputs[0] = hex"abcd";
 
         kipu.depositArbitraryToken(
-            address(usdc),
+            address(mockUsdc),
             1000e6,
             dummyPermit,
             dummyCommand,
