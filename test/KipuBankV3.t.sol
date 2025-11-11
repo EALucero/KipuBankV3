@@ -5,13 +5,17 @@ import { Test } from "forge-std/Test.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { KipuBankV3 } from "../src/KipuBankV3.sol";
 import { MockERC20 } from "./mocks/MockERC20.sol";
+import { MockPermit2 } from "./mocks/MockPermit2.sol";
 import { MockUniswapRouter } from "./mocks/MockUniswapRouter.sol";
+import { MockUniversalRouter } from "./mocks/MockUniversalRouter.sol";
+import { MockUSDC } from "./mocks/MockUSDC.sol";
+import { IPermit2 } from "@uniswap/permit2/src/interfaces/IPermit2.sol";
+import { IUniversalRouter } from "@uniswap/universal-router/contracts/interfaces/IUniversalRouter.sol";
 import "forge-std/Vm.sol";
 
 contract KipuBankV3Test is Test {
     KipuBankV3 kipu;
     address usdc = address(0xA1);
-    address router = address(0xB1);
     address user = address(0xC1);
 
     IERC20 usdcToken;
@@ -19,13 +23,32 @@ contract KipuBankV3Test is Test {
     MockUniswapRouter mockRouter;
 
     function setUp() public {
+        // Mocks
         mockUsdc = new MockERC20();
-        mockRouter = new MockUniswapRouter(address(0xEeeee)); // Simula WETH
+        MockPermit2 permit2 = new MockPermit2();
+        MockUniversalRouter universalRouter = new MockUniversalRouter(address(mockUsdc));
+        MockUniswapRouter uniswapRouter = new MockUniswapRouter(address(0xEeeee));
 
-        kipu = new KipuBankV3(address(mockUsdc), address(mockRouter), 1_000_000e6, 10_000e6);
+        // Instancia del contrato
+        kipu = new KipuBankV3(
+            address(mockUsdc),
+            address(permit2),
+            address(universalRouter),
+            address(uniswapRouter),
+            1_000_000e6,
+            10_000e6
+        );
+
+        // Etiquetas
         vm.label(address(mockUsdc), "USDC");
-        vm.label(router, "UniswapRouter");
+        vm.label(address(universalRouter), "UniversalRouter");
+        vm.label(address(uniswapRouter), "UniswapRouter");
         vm.label(user, "User");
+
+        // Fondos iniciales
+        mockUsdc.mint(address(this), 1_000_000e6);
+        mockUsdc.approve(address(kipu), type(uint256).max);
+        mockUsdc.approve(address(universalRouter), type(uint256).max);
     }
 
     function testInitialStats() public view {
@@ -162,5 +185,22 @@ contract KipuBankV3Test is Test {
 
         // El mock convierte 1 ETH = 1000 USDC
         assertEq(kipu.getVaultBalance(user), 1000e6);
+    }
+
+    function testDepositArbitraryToken() public {
+        bytes memory dummyPermit = hex"1234";
+        bytes memory dummyCommand = hex"01";
+        bytes[] memory dummyInputs = new bytes[](1);
+        dummyInputs[0] = hex"abcd";
+
+        kipu.depositArbitraryToken(
+            address(usdc),
+            1000e6,
+            dummyPermit,
+            dummyCommand,
+            dummyInputs
+        );
+
+        assertEq(kipu.getVaultBalance(address(this)), 1000e6);
     }
 }

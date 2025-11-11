@@ -5,5 +5,12 @@ libs = ["lib"]
 
 remappings = [
   "@openzeppelin/=lib/openzeppelin-contracts/",
-  "v2-periphery/=lib/v2-periphery/"
+  "v2-periphery/=lib/v2-periphery/",
+  "@uniswap/universal-router/=lib/universal-router/",
+  "@uniswap/permit2/=lib/universal-router/lib/permit2/"
 ]
+
+[profile.default.lints]
+unaliased-plain-import = "allow"
+mixed-case-variable = "allow"
+mixed-case-function = "allow"

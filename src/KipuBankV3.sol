@@ -5,7 +5,8 @@ import { AccessControl } from "@openzeppelin/contracts/access/AccessControl.sol"
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import { IUniswapV2Router02 } from "v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
-import "forge-std/console.sol";
+import { IPermit2 } from "@uniswap/permit2/src/interfaces/IPermit2.sol";
+import { IUniversalRouter } from "@uniswap/universal-router/contracts/interfaces/IUniversalRouter.sol";
 
 /**
  * @title KipuBankV3
@@ -27,6 +28,10 @@ contract KipuBankV3 is AccessControl, ReentrancyGuard {
     address public immutable USDC;
     /// @notice Dirección del contrato de Uniswap
     IUniswapV2Router02 public immutable UNISWAP_ROUTER;
+    /// @notice
+    IUniversalRouter public immutable UNIVERSAL_ROUTER;
+    /// @notice
+    address public immutable PERMIT2;
     /// @notice Límite global de depósitos en el banco en USDC
     uint256 public immutable BANK_CAP_USD;
     /// @notice Umbral máximo de retiro por transacción en USDC
@@ -44,10 +49,10 @@ contract KipuBankV3 is AccessControl, ReentrancyGuard {
 
     // ─────── EVENTOS ─────── //
     /// @notice Emitido cuando un usuario deposita fondos
-    event Deposit(address indexed user, address indexed tokenIn, uint256 amountIn, uint256 usdcReceived);
+    event Deposit(address indexed user, address indexed token, uint256 amountIn, uint256 usdcReceived);
     /// @notice Emitido cuando un usuario retira fondos
-    event Withdrawal(address indexed user, uint256 amountUsdc);
-
+    event Withdrawal(address indexed user, uint256 amount);
+    
     // ─────── ERRORES ─────── //
     /// @notice El token proporcionado no está registrado o no tiene decimales configurados
     error InvalidToken();
@@ -68,19 +73,30 @@ contract KipuBankV3 is AccessControl, ReentrancyGuard {
     /**
      * @notice Inicializa el contrato con límites y roless
      * @param _usdc Dirección del token USDC
-     * @param _router Dirección del router de Uniswap V2
+     * @param _permit2 aaa
+     * @param _universalRouter aaa
+     * @param _uniswapRouter Dirección del router de Uniswap V2
      * @param _bankCapUsd Límite total de depósitos en USDC
      * @param _withdrawalLimitUsdc Límite máximo de retiro por transacción en USDC
      */
-    constructor(address _usdc, address _router, uint256 _bankCapUsd, uint256 _withdrawalLimitUsdc) {
-        if (_usdc == address(0) || _router == address(0)) revert InvalidToken();
+    constructor(
+        address _usdc, 
+        address _permit2, 
+        address _universalRouter, 
+        address _uniswapRouter, 
+        uint256 _bankCapUsd, 
+        uint256 _withdrawalLimitUsdc
+    ) {
+        if (_usdc == address(0) || _uniswapRouter == address(0) || _universalRouter == address(0) || _permit2 == address(0)) revert InvalidToken();
         if (_bankCapUsd == 0 || _withdrawalLimitUsdc == 0 || _withdrawalLimitUsdc > _bankCapUsd) revert CapExceeded();
 
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
         _grantRole(ADMIN_ROLE, msg.sender);
 
         USDC = _usdc;
-        UNISWAP_ROUTER = IUniswapV2Router02(_router);
+        PERMIT2 = _permit2;
+        UNIVERSAL_ROUTER = IUniversalRouter(_universalRouter);
+        UNISWAP_ROUTER = IUniswapV2Router02(_uniswapRouter);
         BANK_CAP_USD = _bankCapUsd;
         WITHDRAWAL_LIMIT_USDC = _withdrawalLimitUsdc;
 
@@ -125,14 +141,10 @@ contract KipuBankV3 is AccessControl, ReentrancyGuard {
 
             uint256[] memory amounts;
             if (tokenIn == NATIVE_TOKEN) {
-                amounts = UNISWAP_ROUTER.swapExactETHForTokens{value: amountIn}(
-                    0, path, address(this), block.timestamp
-                );
+                amounts = UNISWAP_ROUTER.swapExactETHForTokens{value: amountIn}(0, path, address(this), block.timestamp);
             } else {
                 IERC20(tokenIn).approve(address(UNISWAP_ROUTER), amountIn);
-                amounts = UNISWAP_ROUTER.swapExactTokensForTokens(
-                    amountIn, 0, path, address(this), block.timestamp
-                );
+                amounts = UNISWAP_ROUTER.swapExactTokensForTokens(amountIn, 0, path, address(this), block.timestamp);
             }
 
             if (amounts.length < 2) revert SwapFailed();
@@ -144,12 +156,36 @@ contract KipuBankV3 is AccessControl, ReentrancyGuard {
         vaults[user][USDC] += usdcReceived;
         totalDeposits += usdcReceived;
 
-        console.log("tokenIn:", tokenIn);
-        console.log("amountIn:", amountIn);
-        console.log("usdcReceived:", usdcReceived);
-
-
         emit Deposit(user, tokenIn, amountIn, usdcReceived);
+    }
+
+    function depositArbitraryToken(
+        address tokenIn,
+        uint256 amountIn,
+        bytes calldata permitData,
+        bytes calldata routerCommands,
+        bytes[] calldata routerInputs
+    ) external nonReentrant {
+        if (amountIn == 0) revert ZeroAmount();
+
+        // TODO: decode permitData and call permitTransferFrom properly
+        // IPermit2(PERMIT2).permitTransferFrom(...); // requires structured input
+
+        bool ok = IERC20(tokenIn).transferFrom(msg.sender, address(this), amountIn);
+        if (!ok) revert TransferFailed();
+
+        IERC20(tokenIn).approve(address(UNIVERSAL_ROUTER), amountIn);
+        UNIVERSAL_ROUTER.execute(routerCommands, routerInputs, block.timestamp);
+
+        uint256 usdcReceived = IERC20(USDC).balanceOf(address(this));
+        if (usdcReceived == 0) revert SwapFailed();
+
+        if (totalDeposits + usdcReceived > BANK_CAP_USD) revert CapExceeded();
+
+        vaults[msg.sender][USDC] += usdcReceived;
+        totalDeposits += usdcReceived;
+
+        emit Deposit(msg.sender, USDC, amountIn, usdcReceived);
     }
 
     // ─────── FUNCIONES DE RETIRO ─────── //
