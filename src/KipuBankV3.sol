@@ -169,17 +169,21 @@ contract KipuBankV3 is AccessControl, ReentrancyGuard {
         if (amountIn == 0) revert ZeroAmount();
 
         // TODO: decode permitData and call permitTransferFrom properly
-        // IPermit2(PERMIT2).permitTransferFrom(...); // requires structured input
 
         bool ok = IERC20(tokenIn).transferFrom(msg.sender, address(this), amountIn);
         if (!ok) revert TransferFailed();
 
         IERC20(tokenIn).approve(address(UNIVERSAL_ROUTER), amountIn);
+
+        uint256 balanceBefore = IERC20(USDC).balanceOf(address(this));
         UNIVERSAL_ROUTER.execute(routerCommands, routerInputs, block.timestamp);
+        uint256 balanceAfter = IERC20(USDC).balanceOf(address(this));
 
-        uint256 usdcReceived = IERC20(USDC).balanceOf(address(this));
+        uint256 usdcReceived = balanceAfter > balanceBefore
+            ? balanceAfter - balanceBefore
+            : 0;
+
         if (usdcReceived == 0) revert SwapFailed();
-
         if (totalDeposits + usdcReceived > BANK_CAP_USD) revert CapExceeded();
 
         vaults[msg.sender][USDC] += usdcReceived;

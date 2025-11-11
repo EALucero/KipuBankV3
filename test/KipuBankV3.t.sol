@@ -20,14 +20,16 @@ contract KipuBankV3Test is Test {
 
     IERC20 usdcToken;
     MockERC20 mockUsdc;
-    MockUniswapRouter mockRouter;
+    MockUniswapRouter uniswapRouter;
+    MockUniversalRouter universalRouter;
+    MockPermit2 permit2;
 
     function setUp() public {
         // Mocks
         mockUsdc = new MockERC20();
-        MockPermit2 permit2 = new MockPermit2();
-        MockUniversalRouter universalRouter = new MockUniversalRouter(address(mockUsdc));
-        MockUniswapRouter uniswapRouter = new MockUniswapRouter(address(0xEeeee));
+        permit2 = new MockPermit2();
+        universalRouter = new MockUniversalRouter(address(mockUsdc));
+        uniswapRouter = new MockUniswapRouter(address(0xEeeee));
 
         // Instancia del contrato
         kipu = new KipuBankV3(
@@ -66,7 +68,7 @@ contract KipuBankV3Test is Test {
         uint256 amount = 1000e6;
 
         mockUsdc.mint(user, amount);
-        mockUsdc.mint(address(mockRouter), 1_000_000e6);
+        mockUsdc.mint(address(uniswapRouter), 1_000_000e6);
 
         vm.recordLogs();
         vm.prank(user);
@@ -96,7 +98,7 @@ contract KipuBankV3Test is Test {
 
         // Depositar primero
         mockUsdc.mint(user, amount);
-        mockUsdc.mint(address(mockRouter), 1_000_000e6);
+        mockUsdc.mint(address(uniswapRouter), 1_000_000e6);
 
         vm.prank(user);
         mockUsdc.approve(address(kipu), amount);
@@ -146,7 +148,7 @@ contract KipuBankV3Test is Test {
 
         // Registramos sus decimales en el contrato
         kipu.setTokenDecimals(address(tokenIn), 18);
-        mockUsdc.mint(address(mockRouter), 1_000_000e6);
+        mockUsdc.mint(address(uniswapRouter), 1_000_000e6);
 
         // Aprobamos y depositamos
         vm.prank(user);
@@ -177,7 +179,7 @@ contract KipuBankV3Test is Test {
         uint256 ethAmount = 1 ether;
 
         // Asegurar que el router tenga USDC para entregar
-        mockUsdc.mint(address(mockRouter), 1_000_000e6);
+        mockUsdc.mint(address(uniswapRouter), 1_000_000e6);
 
         vm.deal(user, ethAmount);
         vm.prank(user);
@@ -192,6 +194,9 @@ contract KipuBankV3Test is Test {
         bytes memory dummyCommand = hex"01";
         bytes[] memory dummyInputs = new bytes[](1);
         dummyInputs[0] = hex"abcd";
+
+        universalRouter.setSimulatedOutput(1000e6);
+        mockUsdc.mint(address(universalRouter), 1000e6);
 
         kipu.depositArbitraryToken(
             address(mockUsdc),
