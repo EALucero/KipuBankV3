@@ -5,8 +5,9 @@ import { AccessControl } from "@openzeppelin/contracts/access/AccessControl.sol"
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import { IUniswapV2Router02 } from "v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
-import { IPermit2 } from "@uniswap/permit2/src/interfaces/IPermit2.sol";
 import { IUniversalRouter } from "@uniswap/universal-router/contracts/interfaces/IUniversalRouter.sol";
+import { IPermit2 } from "../utils/IPermit2.sol";
+import { PermitTransferFrom, SignatureTransferDetails } from "../utils/permitStruct.sol";
 
 /**
  * @title KipuBankV3
@@ -14,6 +15,7 @@ import { IUniversalRouter } from "@uniswap/universal-router/contracts/interfaces
  * @dev Acepta ETH, USDC y cualquier token con par directo a USDC en Uniswap V2
  * @author EALucero
  */
+
 contract KipuBankV3 is AccessControl, ReentrancyGuard {
     // ─────── ROLES ─────── //
     /// @notice Rol administrativo con permisos para configurar tokens y parámetros
@@ -22,13 +24,15 @@ contract KipuBankV3 is AccessControl, ReentrancyGuard {
     // ─────── CONSTANTES ─────── //
     /// @notice Dirección que representa ETH como token nativo
     address public constant NATIVE_TOKEN = address(0);
+    /// @notice Dirección WETH válida para Sepolia
+    address constant WETH_SEPOLIA = 0xdd13E55209Fd76AfE204dBda4007C227904f0a81;
 
     // ─────── VARIABLES IMMUTABLES ─────── //
     /// @notice Dirección del contrato USDC en Sepolia
     address public immutable USDC;
     /// @notice Dirección del contrato de Uniswap
     IUniswapV2Router02 public immutable UNISWAP_ROUTER;
-    /// @notice
+    /// @notice Dirección del contrato de UniversalRouter
     IUniversalRouter public immutable UNIVERSAL_ROUTER;
     /// @notice
     address public immutable PERMIT2;
@@ -111,6 +115,12 @@ contract KipuBankV3 is AccessControl, ReentrancyGuard {
         _swapAndDeposit(msg.sender, NATIVE_TOKEN, msg.value);
     }
 
+    /// @notice Para separar lógica de ETH y swap
+    function _depositNative(address user, uint256 amount) internal {
+        // registrar el depósito en ETH directamente
+        emit Deposit(user, NATIVE_TOKEN, amount, amount);
+    }
+
     /**
      * @notice Deposita tokens (ETH, USDC o cualquier ERC20 con par USDC)
      * @param tokenIn Token a depositar
@@ -121,12 +131,13 @@ contract KipuBankV3 is AccessControl, ReentrancyGuard {
 
         if (tokenIn == NATIVE_TOKEN) {
             require(msg.value == amountIn, "ETH mismatch");
+            // registrar depósito directo en ETH
+            _depositNative(msg.sender, amountIn);
         } else {
             bool ok = IERC20(tokenIn).transferFrom(msg.sender, address(this), amountIn);
             if (!ok) revert TransferFailed();
+            _swapAndDeposit(msg.sender, tokenIn, amountIn);
         }
-
-        _swapAndDeposit(msg.sender, tokenIn, amountIn);
     }
 
     function _swapAndDeposit(address user, address tokenIn, uint256 amountIn) internal {
@@ -136,7 +147,7 @@ contract KipuBankV3 is AccessControl, ReentrancyGuard {
             usdcReceived = amountIn;
         } else {
             address[] memory path = new address[](2);
-            path[0] = tokenIn == NATIVE_TOKEN ? UNISWAP_ROUTER.WETH() : tokenIn;
+            path[0] = tokenIn == NATIVE_TOKEN ? WETH_SEPOLIA : tokenIn;
             path[1] = USDC;
 
             uint256[] memory amounts;
@@ -168,13 +179,16 @@ contract KipuBankV3 is AccessControl, ReentrancyGuard {
     ) external nonReentrant {
         if (amountIn == 0) revert ZeroAmount();
 
-        // TODO: decode permitData and call permitTransferFrom properly
+        // Decode and execute Permit2 transfer
+        (PermitTransferFrom memory permit, SignatureTransferDetails memory transferDetails, bytes memory signature) =
+            abi.decode(permitData, (PermitTransferFrom, SignatureTransferDetails, bytes));
 
-        bool ok = IERC20(tokenIn).transferFrom(msg.sender, address(this), amountIn);
-        if (!ok) revert TransferFailed();
+        IPermit2(PERMIT2).permitTransferFrom(permit, transferDetails, msg.sender, signature);
 
+        // Approve UniversalRouter to spend tokenIn
         IERC20(tokenIn).approve(address(UNIVERSAL_ROUTER), amountIn);
 
+        // Measure USDC before executing the swap
         uint256 balanceBefore = IERC20(USDC).balanceOf(address(this));
         UNIVERSAL_ROUTER.execute(routerCommands, routerInputs, block.timestamp);
         uint256 balanceAfter = IERC20(USDC).balanceOf(address(this));

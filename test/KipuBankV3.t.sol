@@ -8,10 +8,9 @@ import { MockERC20 } from "./mocks/MockERC20.sol";
 import { MockPermit2 } from "./mocks/MockPermit2.sol";
 import { MockUniswapRouter } from "./mocks/MockUniswapRouter.sol";
 import { MockUniversalRouter } from "./mocks/MockUniversalRouter.sol";
-import { MockUSDC } from "./mocks/MockUSDC.sol";
-import { IPermit2 } from "@uniswap/permit2/src/interfaces/IPermit2.sol";
-import { IUniversalRouter } from "@uniswap/universal-router/contracts/interfaces/IUniversalRouter.sol";
+import { PermitTransferFrom, SignatureTransferDetails, TokenPermissions } from "../utils/permitStruct.sol";
 import "forge-std/Vm.sol";
+import { console } from "forge-std/console.sol";
 
 contract KipuBankV3Test is Test {
     KipuBankV3 kipu;
@@ -190,21 +189,36 @@ contract KipuBankV3Test is Test {
     }
 
     function testDepositArbitraryToken() public {
-        bytes memory dummyPermit = hex"1234";
+        PermitTransferFrom memory permit = PermitTransferFrom({
+            permitted: TokenPermissions({token: address(mockUsdc), amount: 1000e6}),
+            nonce: 0,
+            deadline: block.timestamp + 1 hours
+        });
+
+        SignatureTransferDetails memory transferDetails = SignatureTransferDetails({
+            to: address(kipu),
+            requestedAmount: 1000e6
+        });
+
+        bytes memory signature = hex"00"; // dummy firma
+        bytes memory permitData = abi.encode(permit, transferDetails, signature);
+
         bytes memory dummyCommand = hex"01";
         bytes[] memory dummyInputs = new bytes[](1);
         dummyInputs[0] = hex"abcd";
 
         universalRouter.setSimulatedOutput(1000e6);
         mockUsdc.mint(address(universalRouter), 1000e6);
+        console.log("Calling depositArbitraryToken...");
 
         kipu.depositArbitraryToken(
             address(mockUsdc),
             1000e6,
-            dummyPermit,
+            permitData,
             dummyCommand,
             dummyInputs
         );
+         console.log("Finished depositArbitraryToken");
 
         assertEq(kipu.getVaultBalance(address(this)), 1000e6);
     }
